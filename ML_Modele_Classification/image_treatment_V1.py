@@ -43,13 +43,13 @@ from torchvision import datasets, transforms
 
 # ---- Configuration -----------------------------------------------------------
 # Folder of the original dataset (the one that contains `all_images` and `splits`).
-DATA_DIR = Path("~/Downloads/<labelled_dataset_folder>").expanduser()
+DATA_DIR = Path("~/Downloads/<labelled_dataset_folder>").expanduser()  # <-- EDIT: path to the unzipped dataset
 
 # Resized copy of the splits, created next to DATA_DIR. Safe to delete at any time.
 CACHE_DIR = DATA_DIR.parent / (DATA_DIR.name + "_resized")
 
 # Names of the three split folders inside `splits/`. Adjust to the real names.
-TRAIN_DIR, VAL_DIR, TEST_DIR = "train_set", "validation_set", "test_set"
+TRAIN_DIR, VAL_DIR, TEST_DIR = "train_set", "validation_set", "test_set"  # <-- EDIT: exact folder names
 
 # Longest side (in pixels) of the cached copy. Only affects loading speed and
 # disk usage; it is NOT the resolution seen by the model.
@@ -61,6 +61,10 @@ CACHE_MAX_SIDE = 1024
 IMG_SIZE = 384
 
 BATCH_SIZE = 32
+
+# Steps 1-2 (counts and size statistics) are only needed to check the dataset.
+# Set to False after the first run to skip them.
+RUN_INSPECTION = True
 IMG_EXTS = {".jpg", ".jpeg", ".png"}
 CLASS_NAMES = ("counterfeit", "genuine")
 
@@ -216,10 +220,12 @@ def make_loaders(root: Path):
 
 
 # ---- Main --------------------------------------------------------------------
-def main() -> None:
-    """Run steps 1 to 4: inspect, compute size stats, build cache, load data."""
-    print("Device:", device)
+def inspect_dataset() -> None:
+    """Steps 1 and 2: print image counts and raw image-size statistics.
 
+    Only needed once, to check the dataset (counts per split and class, and
+    resolution shortcuts). Disable with RUN_INSPECTION = False afterwards.
+    """
     # Step 1 - image counts per split and class.
     print("\n[1] Images per split and class")
     for split in (TRAIN_DIR, VAL_DIR, TEST_DIR):
@@ -234,7 +240,15 @@ def main() -> None:
         for (w, h), n in sizes.most_common(5):
             print(f"      {w}x{h}: {n}")
 
-    # Step 3 - resized cache.
+
+def main() -> None:
+    """Run steps 1 to 4: inspect, compute size stats, build cache, load data."""
+    print("Device:", device)
+
+    if RUN_INSPECTION:
+        inspect_dataset()
+
+    # Step 3 - resized cache (images already cached are skipped).
     print("\n[3] Resized cache")
     build_cache(DATA_DIR / "splits", CACHE_DIR / "splits", CACHE_MAX_SIDE)
 
