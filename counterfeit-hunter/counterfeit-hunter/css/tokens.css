@@ -1,0 +1,142 @@
+/*
+ * Design tokens: colours, fonts and text size.
+ * Light values live on :root. Dark mode redefines the same tokens, either from
+ * the system setting or from an explicit data-theme="dark" on <html>.
+ */
+
+:root {
+  color-scheme: light;
+
+  --desk: #dfe5ec;
+  --grid: rgba(31, 78, 121, 0.07);
+
+  --bg: #f2f5f8;
+  --surface: #ffffff;
+  --surface-2: #e9eef3;
+  --line: #d3dbe4;
+  --line-strong: #8a99a8;
+
+  --fg: #12202d;
+  --fg-2: #56636f;
+  --fg-2-strong: #2c3946;
+
+  --band: #15334e;
+  --band-fg: #ffffff;
+  --band-fg-2: #a7bed5;
+  --band-track: #2a4b6a;
+
+  --link: #1d5a8e;
+  --btn: #1d5a8e;
+  --btn-fg: #ffffff;
+  --btn-line: #9db4cb;
+  --accent-soft: #e0eaf4;
+
+  --ok: #1b6a36;
+  --ok-soft: #e2f1e6;
+  --bad: #ae2717;
+  --bad-soft: #fae5e1;
+  --warn: #8a5200;
+  --warn-soft: #fcefd8;
+
+  --focus: #2e7fd4;
+  --scrim: rgba(9, 18, 28, 0.48);
+  --shadow: 0 1px 2px rgba(18, 32, 45, 0.06), 0 8px 24px rgba(18, 32, 45, 0.08);
+
+  --f-display: "Barlow Semi Condensed", "Arial Narrow", "Helvetica Neue", sans-serif;
+  --f-body: "Barlow", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  font-size: 16px;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+
+    --desk: #0a1016;
+    --grid: rgba(140, 189, 235, 0.05);
+
+    --bg: #101922;
+    --surface: #17222d;
+    --surface-2: #1f2c38;
+    --line: #2b3a49;
+    --line-strong: #6c8094;
+
+    --fg: #e5ecf2;
+    --fg-2: #9baab8;
+    --fg-2-strong: #cad5df;
+
+    --band: #0c1d2d;
+    --band-fg: #f2f6fa;
+    --band-fg-2: #8ea8c2;
+    --band-track: #23384d;
+
+    --link: #8cbdeb;
+    --btn: #2c6aa3;
+    --btn-fg: #ffffff;
+    --btn-line: #3f6183;
+    --accent-soft: #1a3045;
+
+    --ok: #74cf90;
+    --ok-soft: #142f21;
+    --bad: #ff8d7d;
+    --bad-soft: #381c18;
+    --warn: #f1b75a;
+    --warn-soft: #352711;
+
+    --focus: #7db6f0;
+    --scrim: rgba(0, 0, 0, 0.6);
+    --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+  }
+}
+
+/* Same values as above, for when the user picks Dark in the app settings. */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --desk: #0a1016;
+  --grid: rgba(140, 189, 235, 0.05);
+
+  --bg: #101922;
+  --surface: #17222d;
+  --surface-2: #1f2c38;
+  --line: #2b3a49;
+  --line-strong: #6c8094;
+
+  --fg: #e5ecf2;
+  --fg-2: #9baab8;
+  --fg-2-strong: #cad5df;
+
+  --band: #0c1d2d;
+  --band-fg: #f2f6fa;
+  --band-fg-2: #8ea8c2;
+  --band-track: #23384d;
+
+  --link: #8cbdeb;
+  --btn: #2c6aa3;
+  --btn-fg: #ffffff;
+  --btn-line: #3f6183;
+  --accent-soft: #1a3045;
+
+  --ok: #74cf90;
+  --ok-soft: #142f21;
+  --bad: #ff8d7d;
+  --bad-soft: #381c18;
+  --warn: #f1b75a;
+  --warn-soft: #352711;
+
+  --focus: #7db6f0;
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+/* High contrast setting: stronger borders and secondary text in both themes. */
+:root.high-contrast {
+  --line: var(--line-strong);
+  --fg-2: var(--fg-2-strong);
+}
+
+/* Large text setting. Everything is sized in rem, so this scales the whole app. */
+:root.large-text {
+  font-size: 18.5px;
+}

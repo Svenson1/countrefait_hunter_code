@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Counterfeit Hunter</title>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@600;700&family=IBM+Plex+Mono:wght@500&display=swap">
+
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+  <link rel="stylesheet" href="css/screens.css">
+</head>
+<body>
+  <div class="desk">
+    <div class="device" id="device">
+      <!-- Screens are rendered into #app by js/ui/render.js -->
+      <div id="app"></div>
+      <div id="sheetRoot"></div>
+      <div id="toast" role="status" aria-live="polite"></div>
+
+      <!-- Hidden file inputs. On a phone, "capture" opens the camera directly. -->
+      <input type="file" id="file-camera" class="visually-hidden" accept="image/*" capture="environment" tabindex="-1" aria-hidden="true">
+      <input type="file" id="file-gallery" class="visually-hidden" accept="image/*" tabindex="-1" aria-hidden="true">
+    </div>
+
+    <aside class="notes" id="notes" aria-label="Prototype notes"></aside>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

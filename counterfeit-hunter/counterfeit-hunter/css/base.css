@@ -1,0 +1,442 @@
+/* Reset, page layout, the phone frame, header bar and bottom tabs. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow: hidden;
+  background: var(--desk);
+  color: var(--fg);
+  font-family: var(--f-body);
+  font-size: 1rem;
+  line-height: 1.45;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Paint the phone's status-bar and home-indicator areas in the matching colours. */
+body::before,
+body::after {
+  content: "";
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 10;
+}
+
+body::before {
+  top: 0;
+  height: env(safe-area-inset-top, 0px);
+  background: var(--band);
+}
+
+body::after {
+  bottom: 0;
+  height: env(safe-area-inset-bottom, 0px);
+  background: var(--surface);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+img {
+  max-width: 100%;
+}
+
+h1,
+h2,
+h3 {
+  margin: 0;
+  font-family: var(--f-display);
+  font-weight: 700;
+  line-height: 1.15;
+  text-wrap: balance;
+}
+
+p {
+  margin: 0;
+}
+
+[hidden] {
+  display: none !important;
+}
+
+:focus-visible {
+  outline: 2.5px solid var(--focus);
+  outline-offset: 2px;
+}
+
+/* Side padding that also clears the phone's rounded corners and notches. */
+.gut {
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+
+/* Visually hidden but still clickable from script (the file inputs). */
+.visually-hidden {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.mono {
+  font-family: var(--f-mono);
+  font-size: 0.86em;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.eyebrow {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--fg-2);
+}
+
+.hint {
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--fg-2);
+}
+
+.lead {
+  font-size: 1rem;
+  color: var(--fg-2);
+}
+
+/* ---- Desk and phone frame ------------------------------------------------ */
+
+.desk {
+  height: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  gap: 40px;
+}
+
+.device {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+#app {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.notes {
+  display: none;
+}
+
+/* On a tablet or computer the app sits in a phone frame on a drafting grid. */
+@media (min-width: 600px) {
+  .desk {
+    align-items: center;
+    padding-block: 20px;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+
+  .device {
+    flex: none;
+    width: 400px;
+    height: min(880px, 100%);
+    border: 1px solid var(--line);
+    border-radius: 30px;
+    box-shadow: var(--shadow);
+  }
+}
+
+/* Wide screens also get the prototype notes next to the phone. */
+@media (min-width: 960px) {
+  .notes {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    flex: none;
+    align-self: center;
+    width: 300px;
+    max-height: min(880px, 100%);
+    overflow-y: auto;
+    font-size: 0.9rem;
+    color: var(--fg-2);
+  }
+
+  .notes h2 {
+    font-size: 1.5rem;
+    color: var(--fg);
+  }
+
+  .notes h3 {
+    margin-top: 6px;
+    font-size: 1rem;
+    color: var(--fg);
+  }
+
+  .notes .ids {
+    font-size: 0.85rem;
+    color: var(--link);
+  }
+
+  .notes ul {
+    margin: 0;
+    padding-left: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .notes code {
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: var(--surface-2);
+    color: var(--fg);
+    font-family: var(--f-mono);
+    font-size: 0.85em;
+  }
+
+  .notes hr {
+    width: 100%;
+    margin: 4px 0;
+    border: 0;
+    border-top: 1px solid var(--line);
+  }
+}
+
+/* ---- Header bar ---------------------------------------------------------- */
+
+.bar {
+  flex: none;
+  background: var(--band);
+  color: var(--band-fg);
+}
+
+.bar-in {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 60px;
+  padding-block: 8px;
+}
+
+.bar.home .bar-in {
+  padding-block: 14px 16px;
+}
+
+.bar-t {
+  flex: 1;
+  min-width: 0;
+  padding-inline: 4px;
+}
+
+.bar h1 {
+  font-size: 1.3rem;
+  letter-spacing: 0.005em;
+}
+
+.bar .sub {
+  margin-top: 1px;
+  overflow: hidden;
+  font-size: 0.8rem;
+  color: var(--band-fg-2);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.bar .mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  color: var(--band-fg);
+}
+
+.icon-btn {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+}
+
+.icon-btn:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Four-step progress under the header. */
+.steps {
+  margin: 0;
+  padding-block: 2px 12px;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+  list-style: none;
+}
+
+.steps .s {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.72rem;
+  font-weight: 500;
+  color: var(--band-fg-2);
+}
+
+.steps .s span {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.steps .s i {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--band-track);
+}
+
+.steps .s.done i {
+  background: var(--band-fg-2);
+}
+
+.steps .s.on {
+  font-weight: 600;
+  color: var(--band-fg);
+}
+
+.steps .s.on i {
+  background: var(--band-fg);
+}
+
+/* ---- Scrolling content, footer actions, tabs ------------------------------ */
+
+.scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.pad {
+  padding-block: 18px 28px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.sec-h {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.h3 {
+  font-family: var(--f-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--fg);
+}
+
+.foot {
+  flex: none;
+  padding-block: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.foot-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.foot .fine {
+  text-align: center;
+  font-size: 0.78rem;
+  color: var(--fg-2);
+}
+
+.tabs {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.tab {
+  min-height: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border: 0;
+  background: transparent;
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--fg-2);
+}
+
+.tab[aria-current="page"] {
+  color: var(--link);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
