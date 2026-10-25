@@ -43,7 +43,7 @@ from torchvision import datasets, transforms
 
 # ---- Configuration -----------------------------------------------------------
 # Folder of the original dataset (the one that contains `all_images` and `splits`).
-DATA_DIR = Path("~/Downloads/<labelled_dataset_folder>").expanduser()  # <-- EDIT: path to the unzipped dataset
+DATA_DIR = Path("/home/matteo/Documents/Master1/Q1/Finlande/IS_project/IS_Project_Code/countrefait_hunter_code/ML_Modele_Classification/Ugandan banknote image dataset for genuine and cou/labelled_ugandan_banknote_dataset_clean").expanduser()  # <-- EDIT: path to the unzipped dataset
 
 # Resized copy of the splits, created next to DATA_DIR. Safe to delete at any time.
 CACHE_DIR = DATA_DIR.parent / (DATA_DIR.name + "_resized")

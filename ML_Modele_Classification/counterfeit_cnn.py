@@ -355,7 +355,10 @@ def main() -> None:
             best_val_loss, stale = val["loss"], 0
             torch.save({
                 "model_state": model.state_dict(), "class_to_idx": class_to_idx,
-                "img_size": cs.IMG_SIZE, "epoch": epoch, "args": vars(args),
+                "img_size": cs.IMG_SIZE, "epoch": epoch,
+                # Path objects are stored as strings so the checkpoint loads
+                # with torch.load's default (safe) settings.
+                "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
             }, checkpoint_path)
         else:
             stale += 1
