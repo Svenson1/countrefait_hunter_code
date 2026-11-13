@@ -3,4 +3,7 @@
 torch>=2.2
 torchvision>=0.17
 pillow>=10
-gradio>=6,<7
+# Web server for app.py (serves web/ and the /api endpoints)
+fastapi>=0.110
+uvicorn>=0.29
+python-multipart>=0.0.9

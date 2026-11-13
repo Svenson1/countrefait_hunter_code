@@ -1,17 +1,18 @@
-# Counterfeit banknote detector: web app (proof of concept)
+# Counterfeit Hunter: banknote checker with a CNN (proof of concept)
 
-A small web page that loads a CNN trained from scratch (`counterfeit_cnn.py`)
-and classifies one photo, for example *counterfeit* vs. *genuine* banknote. The answer
-includes the probability of the positive class. You can take the photo with the camera or
-upload a file, on a laptop or a phone. Nothing is trained in the app.
+A phone-friendly web app (the **Counterfeit Hunter** interface) backed by a CNN trained from
+scratch on photos of Ugandan banknotes. The user photographs a note (front, back and the four
+edges), picks the denomination, and gets *Not a counterfeit* or *Might be counterfeit*. An
+optional security-feature checklist can update that result. The front and back photos are
+assessed by the trained model on a small Python server. Nothing is trained in the app.
 
 ## Project files
 
 Run every command from the `ML_Modele_Classification` folder.
 
 ```
-verify_dataset.py  ->  image_treatment_V2.py  ->  counterfeit_cnn.py  ->  app.py
-check the data         prepare the images         train / threshold      web page
+verify_dataset.py  ->  image_treatment_V2.py  ->  counterfeit_cnn.py  ->  app.py + web/
+check the data         prepare the images         train / threshold      web app
                                                    / test
 ```
 `model.py` is used by both `counterfeit_cnn.py` and `app.py`; you never run it yourself.
@@ -22,7 +23,8 @@ check the data         prepare the images         train / threshold      web pag
 | `image_treatment_V2.py` | data preparation: inspection, resized cache, data loaders |
 | `model.py` | the CNN architecture (`CounterfeitCNN`) |
 | `counterfeit_cnn.py` | training, threshold selection, test evaluation, summary |
-| `app.py` | Gradio web app (inference only, CPU) |
+| `app.py` | web server: serves `web/` and runs the model (CPU) |
+| `web/` | the Counterfeit Hunter interface (HTML/CSS/JS, no build step) |
 | `requirements.txt` | dependencies of the app |
 | `runs/<run>/` | results of each training run (checkpoint, metrics) |
 
@@ -139,26 +141,48 @@ python counterfeit_cnn.py --summarize
 Prints the mean and standard deviation of recall, precision, F1, ROC-AUC and accuracy over
 seeds, for each configuration. `--runs-dir` sets the folder to search (default `runs`).
 
-### `app.py`: the web app
+### `app.py`: the web server
 
-A web page where you upload or take a photo; it answers counterfeit or genuine with the
-probability. It never trains anything. Details are in sections 2 and 3 below.
+Loads one checkpoint on CPU and serves the app. Details are in sections 2 and 3 below.
+
+| Address | What it is |
+|---|---|
+| `/` | the Counterfeit Hunter app (files from `web/`) |
+| `GET /api/model` | the loaded model: name, dataset, classes, positive class, threshold |
+| `POST /api/classify` | photos in (`images`, multipart), probabilities and verdict out |
 
 | Option | Effect |
 |---|---|
-| *(none)* | local only, http://127.0.0.1:7860 |
-| `--checkpoint runs/X/best_model.pt` | model selected first (every `runs/*/best_model.pt` is in the dropdown) |
-| `--host 0.0.0.0` | reachable from a phone on the same Wi-Fi (upload only) |
-| `--share` | temporary public HTTPS link; the camera works on phones |
-| `--port` | port (default 7860) |
-| `--runs-dir` | folder searched for checkpoints (default `runs/`) |
-| `--title "..."` | page title (useful after retraining on another object) |
+| `--checkpoint runs/X/best_model.pt` | model to serve (default: the newest `runs/*/best_model.pt`) |
+| `--host 0.0.0.0` | reachable from a phone on the same Wi-Fi |
+| `--port` | port (default 8000) |
+| `--ssl-certfile`, `--ssl-keyfile` | serve over HTTPS (live camera on phones) |
+| `--runs-dir` | folder searched for the default checkpoint (default `runs/`) |
 | `--positive-class`, `--dataset-note` | only for old checkpoints that lack these fields |
+
+### `web/`: the interface
+
+A copy of the **Counterfeit Hunter v1** prototype, connected to the real model. It has three
+languages (English, Kiswahili, Suomi), a light and dark theme, a check history and an
+admin section. What changed compared with the prototype:
+
+| File | Change |
+|---|---|
+| `js/model.js` | `classify()` sends the front and back photos to `/api/classify` (it was simulated) |
+| `js/images.js`, `js/camera.js` | each photo keeps its original file (or a full-size camera frame) for upload, instead of only the small preview |
+| `js/flow.js` | the forced demo outcomes and the "sample photos" were removed |
+| `js/ui/screens/settings.js` | the admin threshold slider was replaced by the model's threshold (read-only), and About shows the loaded model |
+| `js/i18n/*.js` | texts for the real model and the privacy note |
+
+The decision rule now comes from the checkpoint. The prototype's "95% sure it's genuine"
+slider was an arbitrary number. The app now uses the threshold chosen on the validation set
+for the target recall (`--choose-threshold`). The checklist step (`js/judgement.js`) is
+unchanged: it receives that threshold on its usual "% genuine" scale.
 
 ### `requirements.txt`
 
-The app's dependencies: CPU-only torch, torchvision, Pillow and Gradio. Install them with
-`pip install -r requirements.txt`; see section 1 below.
+The app's dependencies: CPU-only torch, torchvision, Pillow, FastAPI, uvicorn and
+python-multipart. Install them with `pip install -r requirements.txt`; see section 1 below.
 
 ### `runs/`: training results
 
@@ -197,62 +221,68 @@ pip install -r requirements.txt
 From the `ML_Modele_Classification` folder:
 
 ```bash
-python app.py                                             # http://127.0.0.1:7860
-python app.py --checkpoint runs/cnn_384px_seed42/best_model.pt
+python app.py --checkpoint runs/cnn_seed42/best_model.pt --dataset-note "Ugandan banknotes (Azamuke et al., 2026)"
 ```
 
-Open the printed URL, pick a checkpoint in the dropdown (every `runs/*/best_model.pt` is
-listed), take or upload a photo and click **Analyze**. Tick **Show Grad-CAM heatmap** to
-see the regions that influenced the decision most (red).
+Open http://127.0.0.1:8000 and follow the app:
 
-Options: `--host`, `--port`, `--share`, `--runs-dir`, `--title`, and two fallbacks for
-old checkpoints: `--positive-class` and `--dataset-note`. Run `python app.py --help`.
+1. Take or choose the six photos (front, back, four edges).
+2. Pick the note's value.
+3. Read the result.
+4. Optionally go through the security checklist.
 
-### What the app does with a photo
+Settings → Admin (demo PIN `1234`) shows the model's threshold and the dataset it was
+trained on.
 
-The preprocessing reproduces the validation pipeline exactly (checked: identical tensors):
+### What happens to the photos
 
-1. Like the training cache (`image_treatment_V2.build_cache`), it applies the EXIF rotation
-   (`ImageOps.exif_transpose`), shrinks the longest side to 1024 px (LANCZOS), converts to
-   RGB, and re-encodes as JPEG with quality 95.
-2. Like the validation transform, it resizes to `img_size x img_size`, applies `ToTensor`,
-   and normalizes with the same mean and std. There is no augmentation.
-
-The model returns `p = softmax(logits)[class_to_idx[positive_class]]`, and the verdict is
-the positive class if `p >= threshold`. Otherwise the verdict is the most likely other class.
-
-Uploads are limited to 15 MB and 40 megapixels. Corrupt or non-image files get a clear
-error message.
+- **Which photos are scored.** Only the **front and back** photos are sent to the model.
+  The model was trained on photos of whole notes, so photos of the thin edges would mean
+  nothing to it. The edge photos stay part of the check (quality checks, history, report).
+- **Exact training preprocessing.** The app uploads the **original file** (or the
+  full-size camera frame), not its 560 px preview, so the server can reproduce the
+  validation preprocessing exactly (checked: identical tensors):
+  1. Like the training cache (`image_treatment_V2.build_cache`), it applies the EXIF
+     rotation, shrinks the longest side to 1024 px (LANCZOS), converts to RGB, and
+     re-encodes as JPEG with quality 95.
+  2. Like the validation transform, it resizes to `img_size x img_size`, applies
+     `ToTensor`, and normalizes with the same mean and std. There is no augmentation.
+- **Decision.** Each photo gets `P(counterfeit)`. The note is flagged *Might be
+  counterfeit* when **any** face photo reaches the threshold stored in the checkpoint.
+  Missing a counterfeit costs more than a false alarm.
+- **Limits and errors.** Uploads are limited to 6 photos, 15 MB and 40 megapixels each.
+  An unreadable photo leads to the app's "photos can't be used" screen, and an unreachable
+  server to its "service not responding" screen.
+- **Nothing is stored on the server.** The photos are processed in memory. The history
+  stays in the phone's browser (`localStorage`).
 
 ## 3. Use it from a phone
 
-Phone browsers only allow **live camera access on HTTPS pages** (or on `localhost`). This
-decides which option you need:
+Phone browsers only allow the **live camera viewfinder on HTTPS pages** (or on
+`localhost`). Over plain HTTP the app automatically falls back to the phone's own camera app,
+which works just as well for taking the photos.
 
-| Option | Command | Camera button | Upload / phone camera app |
+| Option | Command | Live viewfinder | Phone camera app / gallery |
 |---|---|---|---|
-| Same Wi-Fi | `python app.py --host 0.0.0.0`, then open `http://<PC-IP>:7860` on the phone | ❌ blocked (plain HTTP) | ✅ the upload button can open the phone's camera app |
-| Public link | `python app.py --share` | ✅ HTTPS | ✅ |
-| Hugging Face Spaces | see below | ✅ HTTPS, permanent | ✅ |
+| Same Wi-Fi | `python app.py --host 0.0.0.0 --checkpoint …`, then open `http://<PC-IP>:8000` on the phone | ❌ (plain HTTP) | ✅ |
+| Same Wi-Fi + HTTPS | add `--ssl-certfile cert.pem --ssl-keyfile key.pem`, open `https://<PC-IP>:8000` | ✅ after accepting the certificate warning | ✅ |
 
-- **Same Wi-Fi.** Find the PC's IP with `hostname -I` (Linux) and allow port 7860 in the
-  firewall if needed (e.g. `sudo ufw allow 7860`). On most phones, tapping the upload
-  area still lets you choose "Camera", so this is often enough.
-- **`--share`.** Gradio creates a temporary `https://xxxx.gradio.live` link.
-  The link expires after a few days, and the model still runs on your PC. **Anyone who has
-  the link can use the app**, so share it only with testers.
-- **Hugging Face Spaces (free, permanent HTTPS).** Create a Space with the *Gradio* SDK
-  and push `app.py`, `model.py`, `requirements.txt` and one `runs/<run>/best_model.pt`
-  (about 1.5 MB, so no Git LFS is needed). The Space sets `GRADIO_SERVER_NAME`, which the
-  app uses as its default host, so it starts without extra flags. The Space is public
-  unless you make it private.
-
-The webcam is not mirrored and asks for the phone's **rear** camera (`facingMode:
-environment`). If the browser opens the front camera, switch with the camera selector.
+- **Same Wi-Fi.** Find the PC's IP with `hostname -I` (Linux) or `ipconfig getifaddr en0`
+  (macOS). Allow port 8000 in the firewall if needed, e.g. `sudo ufw allow 8000`.
+- **HTTPS with a self-signed certificate** (valid 30 days):
+  ```bash
+  openssl req -x509 -newkey rsa:2048 -nodes -keyout key.pem -out cert.pem -days 30 -subj "/CN=counterfeit-hunter"
+  python app.py --host 0.0.0.0 --checkpoint runs/cnn_seed42/best_model.pt --ssl-certfile cert.pem --ssl-keyfile key.pem
+  ```
+  The phone warns that the certificate is not trusted. Continue anyway (it's your own
+  server), and the live camera then usually works. Don't commit `key.pem`.
+- **Public HTTPS link.** For testers outside your network, run a tunnel such as
+  `cloudflared tunnel --url http://localhost:8000`, which prints a temporary `https://` link.
+  Anyone with the link can use the app.
 
 ## 4. Retrain on another dataset and load the new model
 
-The app has no class name, input size or dataset name in its code. Everything comes from
+The server has no class name, input size or dataset name in its code. Everything comes from
 the checkpoint: `model_state`, `class_to_idx`, `config` (`img_size`, `base_filters`,
 `num_blocks`, `dropout`), `positive_class`, `threshold`, `dataset`, and `preprocess`
 (cache size, mean and std).
@@ -275,8 +305,11 @@ the checkpoint: `model_state`, `class_to_idx`, `config` (`img_size`, `base_filte
    # or an explicit value, which must also come from validation:
    python counterfeit_cnn.py --evaluate-test --threshold 0.39 --output-dir runs/my_new_model
    ```
-5. Restart `python app.py`. The new run appears in the dropdown. Optionally change the
-   title: `--title "Defect detector (PoC)"`.
+5. Restart `python app.py --checkpoint runs/my_new_model/best_model.pt`. The model,
+   classes and threshold come from the checkpoint. The `web/` interface itself is made
+   for banknotes (genuine vs. counterfeit, denominations, checklist). For another object
+   you would adapt its texts and screens; the `/api/classify` endpoint is already generic
+   (it returns the positive class and its probability).
 
 The threshold is never chosen on the test set. Doing so would make the test metrics
 optimistic and meaningless.
@@ -293,18 +326,22 @@ optimistic and meaningless.
 ## 5. Test locally
 
 ```bash
-python app.py
+python app.py --checkpoint runs/cnn_seed42/best_model.pt
 ```
 
-1. Open http://127.0.0.1:7860.
-2. Upload a few photos from `data/.../splits/validation_set/{counterfeit,genuine}`. The
-   verdict should match the folder for most of them (the validation recall is about 0.95
-   for `cnn_seed42`).
-3. Upload a non-image file renamed to `.jpg`. You should see "This file is not a valid
-   or complete image".
-4. Click **Analyze** without an image. You should see a request to add a photo.
-5. Tick Grad-CAM and check that the hot regions lie on the note, not on the background.
-6. From a phone, run `python app.py --share` and take a picture with the camera button.
+1. Open http://127.0.0.1:8000 and start a check. Use photos from
+   `data/.../splits/validation_set/{counterfeit,genuine}` for the front and back; any photo
+   will do for the edges. The verdict should match the folder for most notes (validation
+   recall is about 0.95 for `cnn_seed42`).
+2. Use a photo of something else for the front: the app still answers. That's expected,
+   see the limitations below.
+3. Stop the server during the analysis to see the "service not responding" screen.
+4. Test the API on its own:
+   ```bash
+   curl http://127.0.0.1:8000/api/model
+   curl -F "images=@photo_front.jpg;filename=front.jpg" http://127.0.0.1:8000/api/classify
+   ```
+5. From a phone, use the same-Wi-Fi or HTTPS option of section 3.
 
 Do **not** use test-set images to "try" thresholds or models. Keep them for the final
 evaluation.
@@ -317,13 +354,21 @@ evaluation.
   meaningless. There is no "unknown object" class or out-of-distribution detection.
 - **Background shortcut risk.** Global average pooling also averages the background.
   If the counterfeit and genuine photos were taken in different conditions, the model may
-  partly rely on them. Grad-CAM helps to spot this.
+  partly rely on them. In this dataset the phone model is linked to the class (Cramér's V
+  about 0.29), so balance or stratify by device before trusting any accuracy figure.
 - **Square resize.** Photos are stretched to a square, as in training. Framing the note
   the way the dataset does (note filling most of the image) gives the most reliable results.
 - **Probabilities are not calibrated.** "87 %" is a model score, not a true probability.
 - **Small dataset.** About 1,000 training images and one seed. Metrics vary between seeds
   (see `--summarize`).
+- **Two photos, one rule.** The threshold was chosen per photo, on validation. Flagging the
+  note when either face reaches it catches more counterfeits than a single photo would, but
+  also raises more false alarms than the validation numbers suggest.
+- **Denomination and checklist are not used by the model.** The chosen value only drives
+  the checklist; the checklist's weighting (`js/judgement.js`) comes from the prototype and
+  is not validated.
 - **Webcam quality.** Laptop webcams are much worse than the phone photos used in training,
-  so uploading a real phone photo is more reliable.
-- **Proof of concept.** There is no authentication, the app has no rate limiting, and
-  `--share` links are public. Never use it to make real decisions about money.
+  so a real phone photo is more reliable.
+- **Proof of concept.** There is no authentication and no rate limiting, the admin PIN is a
+  demo value checked in the browser, and tunnel links are public. Never use it to make real
+  decisions about money.
