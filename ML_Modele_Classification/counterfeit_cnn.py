@@ -41,8 +41,16 @@ Usage
     python counterfeit_cnn_V2.py --seed 1            # another seed (repeat 3-5 times)
     python counterfeit_cnn_V2.py --img-size 224      # resolution ablation (224, 320, 384, 512)
     python counterfeit_cnn_V2.py --summarize         # mean +- SD over seeds, per configuration
+    python counterfeit_cnn_V2.py --choose-threshold --output-dir runs/cnn_384px_seed1
+                                                     # pick the threshold on VALIDATION, store it in best_model.pt
     python counterfeit_cnn_V2.py --evaluate-test --output-dir runs/cnn_384px_seed1
-                                                     # FINAL test evaluation of one run
+                                                     # FINAL test evaluation (stored threshold)
+    python counterfeit_cnn_V2.py --evaluate-test --threshold 0.39 --output-dir ...
+                                                     # same, explicit threshold (from validation!)
+
+The model itself (CounterfeitCNN, conv_block) is defined in model.py.
+best_model.pt also stores positive_class, threshold, dataset and preprocess,
+which the web app (app.py) reads.
 
 Rules we follow
 ---------------
@@ -69,13 +77,18 @@ import time
 from collections import Counter, defaultdict
 from pathlib import Path
 
+import math
+
 import torch
 from torch import nn
+from torchvision import transforms
 
 import image_treatment_V2 as cs  # data pipeline and configuration (must be in the same folder)
+from model import CounterfeitCNN, conv_block  # noqa: F401  (CHANGED: model moved to model.py)
 
 device = cs.device
-POSITIVE_CLASS = "counterfeit"  # the class we most want to catch
+POSITIVE_CLASS = "counterfeit"  # default of --positive-class (the class we most want to catch)
+DEFAULT_THRESHOLD = 0.5  # stored in new checkpoints until --choose-threshold replaces it
 ARCH_KEYS = ("base_filters", "num_blocks", "dropout")  # arguments that define the network
 
 
@@ -94,83 +107,8 @@ def set_seed(seed: int) -> None:
 
 
 # ---- Model -------------------------------------------------------------------
-def conv_block(in_channels: int, out_channels: int) -> nn.Sequential:
-    """Build one convolutional block: Conv -> BatchNorm -> ReLU -> MaxPool.
-
-    - Conv2d (3x3, padding 1): learns `out_channels` local filters. The bias
-      is disabled because BatchNorm already has a learnable shift.
-    - BatchNorm2d: normalizes each channel; stabilizes and speeds up training.
-    - ReLU: non-linearity, so stacked layers can learn complex functions.
-    - MaxPool2d(2): halves height and width, keeping the strongest responses.
-
-    Args:
-        in_channels: Number of input channels (feature maps).
-        out_channels: Number of filters, i.e. output channels.
-
-    Returns:
-        The block as an nn.Sequential.
-    """
-    return nn.Sequential(
-        nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-        nn.BatchNorm2d(out_channels),
-        nn.ReLU(inplace=True),
-        nn.MaxPool2d(2),
-    )
-
-
-class CounterfeitCNN(nn.Module):
-    """Compact CNN for genuine vs. counterfeit classification.
-
-    Architecture (default: 4 blocks, 32 base filters, input 3 x 384 x 384):
-
-        Block 1: 3   -> 32  filters, output  32 x 192 x 192
-        Block 2: 32  -> 64  filters, output  64 x  96 x  96
-        Block 3: 64  -> 128 filters, output 128 x  48 x  48
-        Block 4: 128 -> 256 filters, output 256 x  24 x  24
-        Global average pooling       -> 256 values
-        Dropout + Linear             -> 2 class scores (logits)
-
-    Each block halves the spatial size and doubles the number of filters.
-    With the defaults the model has about 0.39 million parameters.
-
-    Receptive field: each of the 256 final features "sees" a window of about
-    46 x 46 input pixels (about 94 x 94 with 5 blocks). Global average pooling
-    then averages these local features over the whole image, so the model
-    judges local texture rather than the overall layout of the note - and the
-    background contributes to the average as well.
-
-    Args:
-        num_classes: Number of output classes.
-        base_filters: Filters in the first block (doubled at every block).
-        num_blocks: Number of convolutional blocks.
-        dropout: Probability of zeroing a feature before the classifier
-            (training only).
-    """
-
-    def __init__(self, num_classes: int = 2, base_filters: int = 32,
-                 num_blocks: int = 4, dropout: float = 0.4) -> None:
-        super().__init__()
-        channels = [3] + [base_filters * 2 ** i for i in range(num_blocks)]
-        self.features = nn.Sequential(
-            *[conv_block(channels[i], channels[i + 1]) for i in range(num_blocks)]
-        )
-        self.pool = nn.AdaptiveAvgPool2d(1)  # one value per feature map
-        self.dropout = nn.Dropout(dropout)
-        self.classifier = nn.Linear(channels[-1], num_classes)
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        """Compute class scores.
-
-        Args:
-            x: Batch of images, shape (N, 3, H, W).
-
-        Returns:
-            Logits of shape (N, num_classes).
-        """
-        x = self.features(x)
-        x = self.pool(x).flatten(1)
-        x = self.dropout(x)
-        return self.classifier(x)
+# CHANGED: CounterfeitCNN and conv_block now live in model.py (unchanged code),
+# so the web app can rebuild the network without importing this pipeline.
 
 
 def count_parameters(model: nn.Module) -> int:
@@ -256,7 +194,7 @@ def roc_auc(scores: list[float], labels: list[int]) -> float:
 
 
 @torch.no_grad()
-def evaluate(model, loader, criterion, positive_idx: int) -> dict:
+def evaluate(model, loader, criterion, positive_idx: int, threshold: float | None = None) -> dict:
     """Evaluate the model on a DataLoader.
 
     The "positive" class is the counterfeit class: a true positive is a
@@ -268,6 +206,9 @@ def evaluate(model, loader, criterion, positive_idx: int) -> dict:
         loader: DataLoader to evaluate on (validation or test).
         criterion: Loss function.
         positive_idx: Label index of the counterfeit class.
+        threshold: CHANGED. None (default, used during training) keeps the
+            original argmax decision. A float predicts the positive class when
+            P(positive) >= threshold (used by --evaluate-test).
 
     Returns:
         Dict with loss, accuracy, recall, precision, f1 (all for the
@@ -282,13 +223,17 @@ def evaluate(model, loader, criterion, positive_idx: int) -> dict:
         logits = model(images)
         total_loss += criterion(logits, labels).item() * images.size(0)
         n += images.size(0)
-        pred_pos = logits.argmax(dim=1) == positive_idx
+        prob_pos = torch.softmax(logits, dim=1)[:, positive_idx]
+        if threshold is None:
+            pred_pos = logits.argmax(dim=1) == positive_idx
+        else:
+            pred_pos = prob_pos >= threshold
         true_pos = labels == positive_idx
         tp += (pred_pos & true_pos).sum().item()
         fp += (pred_pos & ~true_pos).sum().item()
         fn += (~pred_pos & true_pos).sum().item()
         tn += (~pred_pos & ~true_pos).sum().item()
-        scores += torch.softmax(logits, dim=1)[:, positive_idx].cpu().tolist()
+        scores += prob_pos.cpu().tolist()
         truth += true_pos.int().cpu().tolist()
     recall = tp / (tp + fn) if (tp + fn) else 0.0
     precision = tp / (tp + fp) if (tp + fp) else 0.0
@@ -325,6 +270,76 @@ def check_both_classes(name: str, loader, class_to_idx: dict) -> None:
     if missing:
         sys.exit(f"The {name} set contains no images of {missing}. The dataset is incomplete: "
                  "run verify_dataset.py and then the data-preparation script again.")
+
+
+# ---- Decision threshold and checkpoint metadata (CHANGED: new section) -------
+@torch.no_grad()
+def positive_probs(model, loader, positive_idx: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return P(positive) per image and a boolean "is really positive" tensor."""
+    model.eval()
+    probs, labels = [], []
+    for images, y in loader:
+        probs.append(torch.softmax(model(images.to(device)), dim=1)[:, positive_idx].cpu())
+        labels.append(y)
+    return torch.cat(probs), torch.cat(labels) == positive_idx
+
+
+def choose_threshold(probs: torch.Tensor, is_pos: torch.Tensor, target_recall: float) -> float:
+    """Highest threshold that still reaches `target_recall` (fewest false alarms).
+
+    To catch at least k = ceil(target * n_positives) positives, the threshold
+    must not exceed the score of the k-th most suspicious positive image.
+    Call this on VALIDATION predictions only, never on the test set.
+    """
+    pos_scores = torch.sort(probs[is_pos], descending=True).values
+    k = min(max(math.ceil(target_recall * len(pos_scores)), 1), len(pos_scores))
+    return pos_scores[k - 1].item()
+
+
+def print_sweep(probs: torch.Tensor, is_pos: torch.Tensor, chosen: float) -> None:
+    """Print recall, precision and false alarms for a grid of thresholds (plus the chosen one).
+
+    Shows the trade-off: a lower threshold catches more positives but raises
+    more false alarms.
+    """
+    print("\n  threshold | recall | precision | false-alarm rate | missed | false alarms")
+    for t in sorted(set([round(0.05 * i, 2) for i in range(1, 20)] + [chosen])):
+        pred = probs >= t
+        tp, fp = (pred & is_pos).sum().item(), (pred & ~is_pos).sum().item()
+        fn, tn = (~pred & is_pos).sum().item(), (~pred & ~is_pos).sum().item()
+        recall = tp / (tp + fn) if (tp + fn) else 0.0
+        precision = tp / (tp + fp) if (tp + fp) else 0.0
+        far = fp / (fp + tn) if (fp + tn) else 0.0
+        mark = "  <-- chosen" if t == chosen else ""
+        print(f"     {t:6.3f} | {recall:6.3f} | {precision:9.3f} | {far:16.3f} | {fn:6d} | {fp:12d}{mark}")
+
+
+def print_errors(loader, probs: torch.Tensor, is_pos: torch.Tensor, threshold: float, limit: int) -> None:
+    """List the misclassified images at `threshold`, so they can be inspected by eye.
+
+    The loader must not shuffle, so predictions line up with loader.dataset.samples.
+    """
+    paths = [s[0] for s in loader.dataset.samples]
+    pred = probs >= threshold
+    for title, mask in (("Missed positives (false negatives)", ~pred & is_pos),
+                        ("False alarms (false positives)", pred & ~is_pos)):
+        idx = mask.nonzero().flatten().tolist()
+        print(f"\n{title}: {len(idx)}")
+        for i in idx[:limit]:
+            print(f"  P(positive)={probs[i]:.3f}  {paths[i]}")
+        if len(idx) > limit:
+            print(f"  ... and {len(idx) - limit} more")
+
+
+def preprocess_info(loader) -> dict:
+    """Describe the evaluation preprocessing so that the web app can reproduce it.
+
+    The normalization is read from the loader's own transform, so the
+    checkpoint always matches what the data-preparation script really used.
+    """
+    norm = next(t for t in loader.dataset.transform.transforms if isinstance(t, transforms.Normalize))
+    return {"cache_max_side": cs.CACHE_MAX_SIDE, "mean": [float(v) for v in norm.mean],
+            "std": [float(v) for v in norm.std]}
 
 
 # ---- Reporting ---------------------------------------------------------------
@@ -423,6 +438,20 @@ def parse_args() -> argparse.Namespace:
     p.add_argument("--runs-dir", type=Path, default=Path("runs"), help="folder searched by --summarize")
     p.add_argument("--evaluate-test", action="store_true",
                    help="skip training; evaluate the saved best model on the TEST set")
+    # CHANGED: positive class, decision threshold
+    p.add_argument("--positive-class", default=POSITIVE_CLASS,
+                   help="class folder name treated as 'positive' (default: counterfeit)")
+    p.add_argument("--threshold", type=float, default=None,
+                   help="with --evaluate-test: predict positive when P(positive) >= this value "
+                        "(default: the threshold stored in the checkpoint). Must come from the "
+                        "VALIDATION set (see --choose-threshold), never from the test set")
+    p.add_argument("--choose-threshold", action="store_true",
+                   help="skip training; choose the threshold on the VALIDATION set for "
+                        "--target-recall and store it in best_model.pt")
+    p.add_argument("--target-recall", type=float, default=0.95,
+                   help="recall of the positive class to reach with --choose-threshold")
+    p.add_argument("--max-errors", type=int, default=15,
+                   help="with --choose-threshold: how many misclassified images to list per type")
     p.add_argument("--summarize", action="store_true",
                    help="print mean and SD over seeds of all finished runs, then exit")
     return p.parse_args()
@@ -442,8 +471,8 @@ def main() -> None:
     set_seed(args.seed)
     print("Device:", device)
 
-    # ---- Final evaluation on the test set (use once, at the very end) -------
-    if args.evaluate_test:
+    # ---- CHANGED: shared loading for --choose-threshold and --evaluate-test ---
+    if args.evaluate_test or args.choose_threshold:
         if not checkpoint_path.exists():
             sys.exit(f"No trained model at {checkpoint_path}. Pass the same --seed and --img-size "
                      "(or --output-dir) that were used for training.")
@@ -452,21 +481,51 @@ def main() -> None:
         if args.img_size and args.img_size != config["img_size"]:
             print(f"Note: --img-size {args.img_size} ignored; the model was trained at {config['img_size']} px.")
         cs.IMG_SIZE = config["img_size"]  # evaluate at the trained input size
-        (_, _, test_loader), class_to_idx = cs.make_loaders(cs.CACHE_DIR)
-        check_both_classes("test", test_loader, class_to_idx)
+        (_, val_loader, test_loader), class_to_idx = cs.make_loaders(cs.CACHE_DIR)
         model = CounterfeitCNN(len(class_to_idx), **{k: config[k] for k in ARCH_KEYS}).to(device)
         model.load_state_dict(checkpoint["model_state"])
-        positive_idx = class_to_idx[POSITIVE_CLASS]
+        positive_class = checkpoint.get("positive_class", args.positive_class)  # older checkpoints
+        positive_idx = class_to_idx[positive_class]
+
+        # ---- Choose the decision threshold on the VALIDATION set -------------
+        if args.choose_threshold:
+            check_both_classes("validation", val_loader, class_to_idx)
+            probs, is_pos = positive_probs(model, val_loader, positive_idx)
+            t = choose_threshold(probs, is_pos, args.target_recall)
+            weights = class_weights(val_loader, len(class_to_idx)).to(device)  # only affects the loss
+            m = evaluate(model, val_loader, nn.CrossEntropyLoss(weight=weights), positive_idx, threshold=t)
+            print(f"\nValidation ROC-AUC: {m['roc_auc']:.4f}")
+            print_sweep(probs, is_pos, t)
+            print_metrics(f"VALIDATION at threshold {t:.4f} (target recall {args.target_recall:.2f})", m)
+            print_errors(val_loader, probs, is_pos, t, args.max_errors)
+            # Also fills the new fields of checkpoints saved before this version.
+            checkpoint.update({"threshold": t, "target_recall": args.target_recall,
+                               "positive_class": positive_class,
+                               "dataset": checkpoint.get("dataset", cs.DATA_DIR.name),
+                               "preprocess": checkpoint.get("preprocess", preprocess_info(val_loader))})
+            torch.save(checkpoint, checkpoint_path)
+            save_json({"threshold": t, "target_recall": args.target_recall, "positive_class": positive_class,
+                       "validation": m}, output_dir / "threshold.json")
+            print(f"\nStored threshold {t:.4f} in {checkpoint_path} (chosen on VALIDATION only).")
+            return
+
+        # ---- Final evaluation on the test set (use once, at the very end) ---
+        check_both_classes("test", test_loader, class_to_idx)
+        threshold = args.threshold if args.threshold is not None else checkpoint.get("threshold", DEFAULT_THRESHOLD)
         weights = class_weights(test_loader, len(class_to_idx)).to(device)  # only affects the reported loss
-        m = evaluate(model, test_loader, nn.CrossEntropyLoss(weight=weights), positive_idx)
-        print_metrics(f"TEST SET RESULTS ({output_dir}, trained epoch {checkpoint['epoch']})", m)
-        save_json({"config": config, "seed": checkpoint["seed"], "metrics": m}, output_dir / "test_metrics.json")
+        m = evaluate(model, test_loader, nn.CrossEntropyLoss(weight=weights), positive_idx, threshold=threshold)
+        print_metrics(f"TEST SET RESULTS ({output_dir}, trained epoch {checkpoint['epoch']}, "
+                      f"threshold {threshold:.4f})", m)
+        save_json({"config": config, "seed": checkpoint["seed"], "threshold": threshold, "metrics": m},
+                  output_dir / "test_metrics.json")
         return
 
     # Data: exactly the pipeline defined in the data-preparation script.
     cs.require_dir(cs.CACHE_DIR / "splits")  # fails clearly if the cache is missing
     (train_loader, val_loader, test_loader), class_to_idx = cs.make_loaders(cs.CACHE_DIR)
-    positive_idx = class_to_idx[POSITIVE_CLASS]
+    if args.positive_class not in class_to_idx:  # CHANGED: positive class from the CLI
+        sys.exit(f"--positive-class {args.positive_class!r} is not one of the classes {list(class_to_idx)}.")
+    positive_idx = class_to_idx[args.positive_class]
     num_classes = len(class_to_idx)
     print("Class mapping:", class_to_idx, "| input size:", cs.IMG_SIZE)
     check_both_classes("validation", val_loader, class_to_idx)
@@ -518,6 +577,9 @@ def main() -> None:
                 "model_state": model.state_dict(), "class_to_idx": class_to_idx, "config": config,
                 "seed": args.seed, "epoch": epoch,
                 "args": {k: str(v) if isinstance(v, Path) else v for k, v in vars(args).items()},
+                # CHANGED: everything the web app needs, so no class/dataset name is hard-coded there.
+                "positive_class": args.positive_class, "threshold": DEFAULT_THRESHOLD,
+                "dataset": cs.DATA_DIR.name, "preprocess": preprocess_info(val_loader),
             }, checkpoint_path)
         else:
             stale += 1
@@ -534,8 +596,9 @@ def main() -> None:
     print_metrics(f"Best model: epoch {checkpoint['epoch']} (selected on validation loss) - VALIDATION", best)
     save_json({"config": config, "seed": args.seed, "best_epoch": checkpoint["epoch"], "metrics": best},
               output_dir / "val_metrics.json")
-    print(f"\nSaved to {output_dir}. When all choices are final, evaluate this model once with:\n"
-          f"  python {Path(__file__).name} --evaluate-test --output-dir {output_dir}")
+    print(f"\nSaved to {output_dir}. Next steps:\n"
+          f"  python {Path(__file__).name} --choose-threshold --output-dir {output_dir}   # on VALIDATION\n"
+          f"  python {Path(__file__).name} --evaluate-test --output-dir {output_dir}      # TEST, once, at the end")
 
 
 if __name__ == "__main__":

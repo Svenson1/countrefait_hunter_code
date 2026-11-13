@@ -1,0 +1,6 @@
+# CPU-only PyTorch wheels (much smaller than the default CUDA build on Linux).
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.2
+torchvision>=0.17
+pillow>=10
+gradio>=6,<7
